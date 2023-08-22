@@ -17,10 +17,10 @@
 #include <linux/module.h>
 #include <linux/init.h>
 
-#include <linux/sched.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
-#include <linux/types.h>
+#include <linux/sched.h>  /* current and everything */
+#include <linux/kernel.h> /* printk() */
+#include <linux/fs.h>     /* everything... */
+#include <linux/types.h>  /* size_t */
 #include <linux/cdev.h>
 #include <linux/wait.h>
 
@@ -28,22 +28,23 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 static int sleepy_major = 0;
 static int sleepy_minor = 0;
+struct cdev *sleepy_cdev;
 
 static DECLARE_WAIT_QUEUE_HEAD(wq);
 static int flag = 0;
 
-ssize_t sleepy_read(struct file *filp, char __user *buf, size_t count,
+static ssize_t sleepy_read(struct file *filp, char __user *buf, size_t count,
 		loff_t *pos)
 {
-	printk(KERN_DEBUG "process %i (%s) going to sleep\n",
-			current->pid, current->comm);
-	wait_event_interruptible(wq, flag != 0);
-	flag = 0;
-	printk(KERN_DEBUG "awoken %i (%s)\n", current->pid, current->comm);
-	return 0; /* EOF */
+  pr_debug("process %i (%s) going to sleep\n", current->pid,
+           current->comm);
+  wait_event_interruptible(wq, flag != 0);
+  flag = 0;
+  pr_debug("awoken %i (%s)\n", current->pid, current->comm);
+  return 0; /* EOF */
 }
 
-ssize_t sleepy_write(struct file *filp, const char __user *buf, size_t count,
+static ssize_t sleepy_write(struct file *filp, const char __user *buf, size_t count,
 		loff_t *pos)
 {
 	printk(KERN_DEBUG "process %i (%s) awakening the readers...\n",
@@ -63,7 +64,6 @@ static int __init sleepy_init(void)
 {
 	int result;
 	dev_t dev;
-	struct cdev *sleepy_cdev;
 
 	/* Register dynamically. */
 	result = alloc_chrdev_region(&dev, sleepy_minor, 1, "sleepy");
@@ -76,6 +76,14 @@ static int __init sleepy_init(void)
 	sleepy_major = MAJOR(dev);
 
 	sleepy_cdev = cdev_alloc();
+
+	if (!sleepy_cdev) {
+		printk(KERN_WARNING "Failed to allocate cdev\n");
+		return -ENOMEM;
+	}
+
+    cdev_init(sleepy_cdev, &sleepy_fops);
+    sleepy_cdev->owner = THIS_MODULE;
 	sleepy_cdev->ops = &sleepy_fops;
 	cdev_add(sleepy_cdev, dev, 1);
 
@@ -85,6 +93,7 @@ static int __init sleepy_init(void)
 static void __exit sleepy_cleanup(void)
 {
 	dev_t dev = MKDEV(sleepy_major, sleepy_minor);
+	cdev_del(sleepy_cdev);
 	unregister_chrdev_region(dev, 1);
 }
 
