@@ -11,6 +11,7 @@
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 
+#include "proc_ops_version.h"
 
 MODULE_AUTHOR("Jonathan Corbet");
 MODULE_LICENSE("Dual BSD/GPL");
@@ -94,9 +95,10 @@ static int ct_init(void)
 {
 	struct proc_dir_entry *entry;
 
-	entry = create_proc_entry("sequence", 0, NULL);
-	if (entry)
-		entry->proc_fops = &ct_file_ops;
+        entry = proc_create("sequence", 0, NULL,
+                           proc_ops_wrapper(&ct_file_ops, ct_file_pops));
+        if (!entry)
+		return -ENOMEM;
 	return 0;
 }
 
